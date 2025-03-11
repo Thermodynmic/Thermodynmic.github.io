@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Space Scene</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #000;
+        }
+
+        #space-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-family: Arial, sans-serif;
+            font-size: 1.2em;
+            z-index: 2;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+
+        #error {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff0000;
+            font-family: Arial, sans-serif;
+            font-size: 1.2em;
+            z-index: 2;
+            text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+            display: none;
+        }
+
+        #controls-info {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            font-size: 0.9em;
+            z-index: 2;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+        }
+
+        #ui-overlay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            font-size: 1em;
+            z-index: 2;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 5px;
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.3);
+        }
+
+        #speed-bar {
+            width: 200px;
+            height: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            margin: 5px 0;
+            overflow: hidden;
+        }
+
+        #speed-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #00ff00, #ffff00, #ff0000);
+            transition: width 0.3s ease;
+        }
+
+        #stats {
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+
+        #stats p {
+            margin: 5px 0;
+        }
+
+        #controls-info p {
+            margin: 5px 0;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" onerror="handleError('Failed to load Three.js')"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js" onerror="handleError('Failed to load OrbitControls')"></script>
+</head>
+<body>
+    <div id="loading">Loading...</div>
+    <div id="error"></div>
+    <canvas id="space-canvas"></canvas>
+    <div id="ui-overlay">
+        <div id="speed-bar">
+            <div id="speed-fill"></div>
+        </div>
+        <div id="stats">
+            <p>Speed: <span id="speed-value">0</span> km/s</p>
+            <p>Distance: <span id="distance-value">0</span> km</p>
+            <p>Nearest Black Hole: <span id="nearest-hole">∞</span> km</p>
+        </div>
+    </div>
+    <div id="controls-info">
+        <p>Use mouse to rotate view</p>
+        <p>Scroll to zoom</p>
+        <p>WASD or Arrow keys to move</p>
+        <p>PageUp/PageDown for height</p>
+    </div>
+    <script>
+        function handleError(message) {
+            document.getElementById('loading').style.display = 'none';
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        // Check if Three.js is loaded
+        if (typeof THREE === 'undefined') {
+            handleError('Three.js failed to load. Please check your internet connection.');
+        }
+
+        class SpaceScene {
+            constructor() {
+                try {
+                    // Initialize keys first
+                    this.keys = {};
+                    this.setupKeyboardControls();
+                    
+                    // Update the movie links array with verified working links
+                    this.movieLinks = [
+                        // Classic Space Films
+                        'https://letterboxd.com/film/2001-a-space-odyssey/',
+                        'https://letterboxd.com/film/star-wars-episode-iv-a-new-hope/',
+                        'https://letterboxd.com/film/alien/',
+                        'https://letterboxd.com/film/close-encounters-of-the-third-kind/',
+                        'https://letterboxd.com/film/star-trek-2009/',
+                        'https://letterboxd.com/film/star-trek-first-contact/',
+                        'https://letterboxd.com/film/star-trek-into-darkness/',
+                        'https://letterboxd.com/film/star-trek-beyond/',
+                        'https://letterboxd.com/film/star-trek-discovery/',
+                        'https://letterboxd.com/film/star-trek-picard/',
+                        
+                        // Modern Space Films
+                        'https://letterboxd.com/film/interstellar/',
+                        'https://letterboxd.com/film/gravity/',
+                        'https://letterboxd.com/film/the-martian/',
+                        'https://letterboxd.com/film/arrival/',
+                        'https://letterboxd.com/film/passengers/',
+                        'https://letterboxd.com/film/life-2017/',
+                        'https://letterboxd.com/film/ad-astra/',
+                        'https://letterboxd.com/film/first-man/',
+                        'https://letterboxd.com/film/high-life/',
+                        'https://letterboxd.com/film/prospect/',
+                        
+                        // Space Horror
+                        'https://letterboxd.com/film/event-horizon/',
+                        'https://letterboxd.com/film/sunshine/',
+                        'https://letterboxd.com/film/prometheus/',
+                        'https://letterboxd.com/film/alien-covenant/',
+                        'https://letterboxd.com/film/ghost-in-the-shell-2017/',
+                        'https://letterboxd.com/film/annihilation/',
+                        'https://letterboxd.com/film/underwater/',
+                        'https://letterboxd.com/film/color-out-of-space/',
+                        'https://letterboxd.com/film/the-cloverfield-paradox/',
+                        'https://letterboxd.com/film/alien-isolation/',
+                        
+                        // Space Animation
+                        'https://letterboxd.com/film/wall-e/',
+                        'https://letterboxd.com/film/titan-ae/',
+                        'https://letterboxd.com/film/treasure-planet/',
+                        'https://letterboxd.com/film/astro-boy/',
+                        'https://letterboxd.com/film/planet-51/',
+                        'https://letterboxd.com/film/space-dogs/',
+                        'https://letterboxd.com/film/space-chimps/',
+                        'https://letterboxd.com/film/astro-kid/',
+                        'https://letterboxd.com/film/space-jam/',
+                        'https://letterboxd.com/film/space-jam-a-new-legacy/',
+                        
+                        // Space Documentaries
+                        'https://letterboxd.com/film/cosmos-a-spacetime-odyssey/',
+                        'https://letterboxd.com/film/through-the-wormhole/',
+                        'https://letterboxd.com/film/planet-earth/',
+                        'https://letterboxd.com/film/blue-planet/',
+                        'https://letterboxd.com/film/planet-earth-ii/',
+                        'https://letterboxd.com/film/our-planet/',
+                        'https://letterboxd.com/film/the-universe/',
+                        'https://letterboxd.com/film/how-the-universe-works/',
+                        'https://letterboxd.com/film/space-race/',
+                        'https://letterboxd.com/film/for-all-mankind/'
+                    ];
+                    
+                    this.scene = new THREE.Scene();
+                    this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+                    this.renderer = new THREE.WebGLRenderer({
+                        canvas: document.querySelector('#space-canvas'),
+                        antialias: true,
+                        alpha: true
+                    });
+                    
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                    this.renderer.setPixelRatio(window.devicePixelRatio);
+                    
+                    // Physics properties
+                    this.velocity = new THREE.Vector3();
+                    this.acceleration = new THREE.Vector3();
+                    this.maxSpeed = 8;  // Reduced from 15
+                    this.boostMultiplier = 1.3;  // Reduced from 1.5
+                    this.friction = 0.98;
+                    this.accelerationRate = 0.1;  // Reduced from 0.2
+                    
+                    // Trail effect setup
+                    this.trailPoints = [];
+                    this.maxTrailPoints = 150; // Increased for longer trail
+                    this.trailGeometry = new THREE.BufferGeometry();
+                    this.trailMaterial = new THREE.PointsMaterial({
+                        color: 0xffffff,
+                        size: 2.5,  // Slightly smaller for more subtle effect
+                        transparent: true,
+                        opacity: 0.5,  // Reduced for more subtle effect
+                        blending: THREE.AdditiveBlending,
+                        sizeAttenuation: true
+                    });
+                    this.trail = new THREE.Points(this.trailGeometry, this.trailMaterial);
+                    
+                    // Cloud trail setup
+                    this.cloudTrailPoints = [];
+                    this.maxCloudPoints = 80;  // Increased for longer cloud trail
+                    this.cloudGeometry = new THREE.BufferGeometry();
+                    this.cloudMaterial = new THREE.PointsMaterial({
+                        color: 0xcccccc,
+                        size: 10,  // Slightly larger for more cloud-like effect
+                        transparent: true,
+                        opacity: 0.3,  // Reduced for more subtle effect
+                        blending: THREE.AdditiveBlending,
+                        sizeAttenuation: true
+                    });
+                    this.cloudTrail = new THREE.Points(this.cloudGeometry, this.cloudMaterial);
+                    
+                    // Add orbit controls with adjusted settings
+                    this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
+                    this.controls.enableDamping = true;
+                    this.controls.dampingFactor = 0.05;
+                    this.controls.minDistance = 100;
+                    this.controls.maxDistance = 300;
+                    this.controls.maxPolarAngle = Math.PI;
+                    this.controls.enablePan = true;
+                    this.controls.panSpeed = 1.0;
+                    this.controls.rotateSpeed = 0.8;
+                    
+                    // Initialize camera position tracking
+                    this.lastCameraPosition = new THREE.Vector3();
+                    this.lastCameraQuaternion = new THREE.Quaternion();
+                    this.cameraOffset = new THREE.Vector3(0, 50, 200);
+                    
+                    // Add black hole shader
+                    this.blackHoleShader = {
+                        uniforms: {
+                            time: { value: 0 },
+                            radius: { value: 1.0 }
+                        },
+                        vertexShader: `
+                            varying vec2 vUv;
+                            varying vec3 vPosition;
+                            void main() {
+                                vUv = uv;
+                                vPosition = position;
+                                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                            }
+                        `,
+                        fragmentShader: `
+                            uniform float time;
+                            uniform float radius;
+                            varying vec2 vUv;
+                            
+                            float noise(vec2 p) {
+                                return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+                            }
+                            
+                            void main() {
+                                vec2 center = vec2(0.5, 0.5);
+                                vec2 pos = vUv - center;
+                                float dist = length(pos);
+                                
+                                // Deep black center
+                                float blackHole = 1.0 - smoothstep(0.0, 0.2, dist);
+                                
+                                // Main fire ring
+                                float ringStart = 0.2;
+                                float ringWidth = 0.1;
+                                float ring = smoothstep(ringStart, ringStart + 0.02, dist) * 
+                                           (1.0 - smoothstep(ringStart + ringWidth, ringStart + ringWidth + 0.02, dist));
+                                
+                                // Create multiple layers of fire
+                                float angle = atan(pos.y, pos.x);
+                                float t = time * 2.0;
+                                
+                                // Layer 1: Base fire
+                                float fireNoise = sin(angle * 20.0 + t + dist * 40.0) * 0.5 + 0.5;
+                                
+                                // Layer 2: Swirling flames
+                                float swirl = sin(angle * 10.0 - t * 2.0 + dist * 20.0) * 0.5 + 0.5;
+                                
+                                // Layer 3: Plasma effect
+                                float plasma = sin(dist * 30.0 - t + angle * 5.0) * 0.5 + 0.5;
+                                
+                                // Combine fire layers
+                                float fireMask = ring * (fireNoise * 0.4 + swirl * 0.3 + plasma * 0.3);
+                                
+                                // Fire colors
+                                vec3 innerFire = vec3(1.0, 0.2, 0.0);  // Deep orange
+                                vec3 outerFire = vec3(1.0, 0.6, 0.0);  // Bright orange
+                                vec3 plasmaColor = vec3(0.7, 0.3, 1.0); // Purple plasma
+                                
+                                // Mix fire colors
+                                vec3 fireColor = mix(innerFire, outerFire, fireNoise);
+                                fireColor = mix(fireColor, plasmaColor, plasma * 0.3);
+                                
+                                // Add pulsing intensity
+                                float pulse = sin(time) * 0.2 + 0.8;
+                                
+                                // Combine everything
+                                vec3 finalColor = vec3(0.0);
+                                finalColor += fireColor * fireMask * pulse;
+                                
+                                // Add outer glow
+                                float glow = exp(-dist * 4.0) * 0.3;
+                                finalColor += innerFire * glow;
+                                
+                                // Set alpha for proper blending
+                                float alpha = max(fireMask, glow);
+                                alpha = max(alpha, blackHole);
+                                
+                                gl_FragColor = vec4(finalColor, alpha);
+                            }
+                        `
+                    };
+                    
+                    this.init();
+                    this.animate();
+                    this.handleResize();
+                    
+                    // Hide loading screen after initialization
+                    document.getElementById('loading').style.display = 'none';
+
+                    // Initialize audio context and sounds
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    
+                    // Create engine sound oscillator
+                    this.engineSound = this.audioContext.createOscillator();
+                    this.engineGain = this.audioContext.createGain();
+                    this.engineSound.connect(this.engineGain);
+                    this.engineGain.connect(this.audioContext.destination);
+                    this.engineSound.type = 'sawtooth';
+                    this.engineSound.frequency.setValueAtTime(200, this.audioContext.currentTime);
+                    this.engineGain.gain.setValueAtTime(0.3, this.audioContext.currentTime);
+                    this.engineSound.start();
+                    
+                    // Create boost sound
+                    this.boostSound = this.audioContext.createOscillator();
+                    this.boostGain = this.audioContext.createGain();
+                    this.boostSound.connect(this.boostGain);
+                    this.boostGain.connect(this.audioContext.destination);
+                    this.boostSound.type = 'square';
+                    this.boostSound.frequency.setValueAtTime(400, this.audioContext.currentTime);
+                    this.boostGain.gain.setValueAtTime(0, this.audioContext.currentTime);
+                    this.boostSound.start();
+                    
+                    // Create space ambience
+                    this.ambienceSound = this.audioContext.createOscillator();
+                    this.ambienceGain = this.audioContext.createGain();
+                    this.ambienceSound.connect(this.ambienceGain);
+                    this.ambienceGain.connect(this.audioContext.destination);
+                    this.ambienceSound.type = 'sine';
+                    this.ambienceSound.frequency.setValueAtTime(50, this.audioContext.currentTime);
+                    this.ambienceGain.gain.setValueAtTime(0.1, this.audioContext.currentTime);
+                    this.ambienceSound.start();
+                    
+                    // Initialize UI values
+                    this.distanceTraveled = 0;
+                    this.lastPosition = new THREE.Vector3();
+                } catch (error) {
+                    handleError('Error initializing scene: ' + error.message);
+                }
+            }
+
+            init() {
+                try {
+                    // Create stars with larger boundaries
+                    const starGeometry = new THREE.BufferGeometry();
+                    const starCount = 10000;
+                    const positions = new Float32Array(starCount * 3);
+                    
+                    for (let i = 0; i < starCount * 3; i += 3) {
+                        positions[i] = (Math.random() - 0.5) * 4000;
+                        positions[i + 1] = (Math.random() - 0.5) * 4000;
+                        positions[i + 2] = (Math.random() - 0.5) * 4000;
+                    }
+                    
+                    starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                    
+                    const starMaterial = new THREE.PointsMaterial({
+                        color: 0xffffff,
+                        size: 2,
+                        transparent: true,
+                        opacity: 0.8
+                    });
+                    
+                    this.stars = new THREE.Points(starGeometry, starMaterial);
+                    this.scene.add(this.stars);
+
+                    // Create nebula with warmer colors
+                    const nebulaGeometry = new THREE.SphereGeometry(1000, 32, 32);
+                    const nebulaMaterial = new THREE.ShaderMaterial({
+                        uniforms: {
+                            time: { value: 0 },
+                            colorA: { value: new THREE.Color(0x990000) },  // Deep red
+                            colorB: { value: new THREE.Color(0xff6600) }   // Orange
+                        },
+                        vertexShader: `
+                            varying vec2 vUv;
+                            void main() {
+                                vUv = uv;
+                                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                            }
+                        `,
+                        fragmentShader: `
+                            uniform float time;
+                            uniform vec3 colorA;
+                            uniform vec3 colorB;
+                            varying vec2 vUv;
+                            
+                            void main() {
+                                vec2 center = vec2(0.5, 0.5);
+                                float dist = length(vUv - center);
+                                
+                                float noise = sin(dist * 10.0 + time) * 0.5 + 0.5;
+                                vec3 color = mix(colorA, colorB, noise);
+                                
+                                float alpha = 1.0 - smoothstep(0.4, 0.5, dist);
+                                gl_FragColor = vec4(color, alpha * 0.2);
+                            }
+                        `,
+                        transparent: true,
+                        blending: THREE.AdditiveBlending
+                    });
+                    
+                    this.nebula = new THREE.Mesh(nebulaGeometry, nebulaMaterial);
+                    this.scene.add(this.nebula);
+
+                    // Create Lego F1 Driver
+                    this.createF1Driver();
+
+                    // Initial camera position relative to F1 driver
+                    this.updateCameraPosition();
+
+                    // Create black holes
+                    this.blackHoles = [];
+                    this.createBlackHoles();
+                } catch (error) {
+                    handleError('Error in init: ' + error.message);
+                }
+            }
+
+            createF1Driver() {
+                try {
+                    this.f1Driver = new THREE.Group();
+
+                    // Racing car body - emoji style 🏎️
+                    const bodyGeometry = new THREE.BufferGeometry();
+                    const bodyVertices = new Float32Array([
+                        // Main body (rounded and compact)
+                        0, 8, -35,    -15, 8, -20,   15, 8, -20,    // Front top
+                        -15, 8, -20,  -15, 8, 25,    15, 8, 25,    15, 8, -20,  // Top
+                        -15, 0, -20,  -15, 0, 25,    15, 0, 25,    15, 0, -20,  // Bottom
+                        
+                        // Hood (sloped)
+                        0, 10, -35,   -12, 8, -25,   12, 8, -25,    // Hood top
+                        0, 5, -35,    -12, 5, -25,   12, 5, -25,    // Hood bottom
+                        
+                        // Cabin (rounded)
+                        -12, 16, -5,  -12, 16, 5,    12, 16, 5,    12, 16, -5,  // Roof
+                        -15, 8, -10,  -15, 8, 10,    15, 8, 10,    15, 8, -10,  // Base
+                        
+                        // Rear (tapered)
+                        -12, 12, 25,  -8, 12, 35,    8, 12, 35,    12, 12, 25,  // Top
+                        -12, 0, 25,   -8, 0, 35,     8, 0, 35,     12, 0, 25    // Bottom
+                    ]);
+                    
+                    bodyGeometry.setAttribute('position', new THREE.BufferAttribute(bodyVertices, 3));
+                    bodyGeometry.computeVertexNormals();
+                    
+                    // Sporty red with metallic finish
+                    const bodyMaterial = new THREE.MeshPhongMaterial({
+                        color: 0xff1a1a,
+                        specular: 0x666666,
+                        shininess: 100,
+                        emissive: 0x330000
+                    });
+                    
+                    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                    this.f1Driver.add(body);
+
+                    // Windshield
+                    const windshieldGeometry = new THREE.BoxGeometry(20, 8, 15);
+                    const windshieldMaterial = new THREE.MeshPhongMaterial({
+                        color: 0x333333,
+                        transparent: true,
+                        opacity: 0.7,
+                        specular: 0xffffff,
+                        shininess: 100
+                    });
+                    const windshield = new THREE.Mesh(windshieldGeometry, windshieldMaterial);
+                    windshield.position.set(0, 12, -5);
+                    windshield.rotation.x = Math.PI / 6;
+                    this.f1Driver.add(windshield);
+
+                    // Wheels (larger, more cartoonish)
+                    const wheelGeometry = new THREE.CylinderGeometry(8, 8, 6, 16);
+                    const wheelMaterial = new THREE.MeshPhongMaterial({ 
+                        color: 0x000000,
+                        specular: 0x333333,
+                        shininess: 30
+                    });
+                    const wheelPositions = [
+                        { x: -15, y: 8, z: 15 }, { x: 15, y: 8, z: 15 },  // Front
+                        { x: -15, y: 8, z: -15 }, { x: 15, y: 8, z: -15 }  // Rear
+                    ];
+
+                    wheelPositions.forEach(pos => {
+                        const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                        wheel.rotation.z = Math.PI / 2;
+                        wheel.position.set(pos.x, pos.y, pos.z);
+                        this.f1Driver.add(wheel);
+                        
+                        // Add sporty rims
+                        const rimGeometry = new THREE.TorusGeometry(6, 1, 8, 16);
+                        const rimMaterial = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+                        const rim = new THREE.Mesh(rimGeometry, rimMaterial);
+                        rim.position.set(pos.x + (pos.x > 0 ? 3 : -3), pos.y, pos.z);
+                        rim.rotation.y = Math.PI / 2;
+                        this.f1Driver.add(rim);
+                    });
+
+                    // Add lights
+                    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                    this.scene.add(ambientLight);
+
+                    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                    directionalLight.position.set(100, 100, 100);
+                    this.scene.add(directionalLight);
+
+                    // Add dynamic point lights
+                    this.pointLights = [];
+                    const numPointLights = 5;
+                    for (let i = 0; i < numPointLights; i++) {
+                        const light = new THREE.PointLight(0xffffff, 0.5, 200);
+                        light.position.set(
+                            (Math.random() - 0.5) * 1000,
+                            (Math.random() - 0.5) * 1000,
+                            (Math.random() - 0.5) * 1000
+                        );
+                        this.scene.add(light);
+                        this.pointLights.push({
+                            light: light,
+                            originalPosition: light.position.clone(),
+                            speed: 0.0001 + Math.random() * 0.0002,
+                            phase: Math.random() * Math.PI * 2
+                        });
+                    }
+
+                    // Add F1 driver's own lights
+                    const driverLight = new THREE.PointLight(0xff0000, 0.5, 50);
+                    driverLight.position.set(0, 0, -20);
+                    this.f1Driver.add(driverLight);
+
+                    // Add headlights
+                    const headlightGeometry = new THREE.SphereGeometry(2, 8, 8);
+                    const headlightMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, emissive: 0xffffff });
+                    const leftHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
+                    const rightHeadlight = new THREE.Mesh(headlightGeometry, headlightMaterial);
+                    leftHeadlight.position.set(-10, 5, -35);
+                    rightHeadlight.position.set(10, 5, -35);
+                    this.f1Driver.add(leftHeadlight);
+                    this.f1Driver.add(rightHeadlight);
+
+                    // Position and scale
+                    this.f1Driver.scale.set(0.7, 0.7, 0.7);
+                    this.f1Driver.position.set(0, 0, 0);
+                    this.scene.add(this.f1Driver);
+                    
+                    // Add trails to scene
+                    this.scene.add(this.trail);
+                    this.scene.add(this.cloudTrail);
+
+                    // Movement settings
+                    this.movementSpeed = 0.5;  // Further reduced from 0.8
+                    this.rotationSpeed = 0.005;  // Further reduced from 0.008
+                } catch (error) {
+                    handleError('Error creating F1 driver: ' + error.message);
+                }
+            }
+
+            updateCameraPosition() {
+                if (!this.f1Driver || !this.camera) return;
+
+                // Store current camera orientation
+                const currentRotation = this.camera.quaternion.clone();
+                
+                // Get the relative offset from the camera to the target
+                const offset = this.camera.position.clone().sub(this.controls.target);
+                
+                // Update the control's target to the F1 driver's position
+                this.controls.target.copy(this.f1Driver.position);
+                
+                // Update camera position while maintaining the same relative offset
+                this.camera.position.copy(this.f1Driver.position).add(offset);
+                
+                // Restore the exact camera orientation
+                this.camera.quaternion.copy(currentRotation);
+                
+                // Update the orbit controls
+                this.controls.update();
+            }
+
+            setupKeyboardControls() {
+                window.addEventListener('keydown', (e) => {
+                    this.keys[e.key.toLowerCase()] = true;  // Convert to lowercase for consistency
+                    this.keys[e.key] = true;  // Keep original for arrow keys
+                });
+                window.addEventListener('keyup', (e) => {
+                    this.keys[e.key.toLowerCase()] = false;  // Convert to lowercase for consistency
+                    this.keys[e.key] = false;  // Keep original for arrow keys
+                });
+            }
+
+            handleMovement() {
+                if (!this.f1Driver || !this.keys) return;
+                
+                let moved = false;
+                const moveVector = new THREE.Vector3();
+                
+                // Get camera's forward direction (ignoring y-component)
+                const cameraForward = new THREE.Vector3(0, 0, -1);
+                cameraForward.applyQuaternion(this.camera.quaternion);
+                cameraForward.y = 0;
+                cameraForward.normalize();
+                
+                // Get camera's right direction
+                const cameraRight = new THREE.Vector3(1, 0, 0);
+                cameraRight.applyQuaternion(this.camera.quaternion);
+                cameraRight.y = 0;
+                cameraRight.normalize();
+                
+                // Calculate current speed
+                const currentSpeed = this.velocity.length();
+                
+                // Apply boost if Shift is pressed
+                const boostActive = this.keys['Shift'];
+                const boostMultiplier = boostActive ? this.boostMultiplier : 1;
+                
+                // Forward/Backward movement (Up/Down or W/S)
+                if (this.keys['ArrowUp'] || this.keys['w']) {
+                    this.acceleration.add(cameraForward.multiplyScalar(this.accelerationRate * boostMultiplier));
+                    moved = true;
+                }
+                if (this.keys['ArrowDown'] || this.keys['s']) {
+                    this.acceleration.add(cameraForward.multiplyScalar(-this.accelerationRate * boostMultiplier));
+                    moved = true;
+                }
+                
+                // Left/Right movement (A/D)
+                if (this.keys['ArrowLeft'] || this.keys['a']) {
+                    this.acceleration.add(cameraRight.multiplyScalar(-this.accelerationRate * boostMultiplier));
+                    moved = true;
+                }
+                if (this.keys['ArrowRight'] || this.keys['d']) {
+                    this.acceleration.add(cameraRight.multiplyScalar(this.accelerationRate * boostMultiplier));
+                    moved = true;
+                }
+                
+                // Vertical movement
+                if (this.keys['PageUp']) {
+                    this.acceleration.y += this.accelerationRate * boostMultiplier;
+                    moved = true;
+                }
+                if (this.keys['PageDown']) {
+                    this.acceleration.y -= this.accelerationRate * boostMultiplier;
+                    moved = true;
+                }
+                
+                // Apply acceleration to velocity
+                this.velocity.add(this.acceleration);
+                
+                // Apply friction
+                this.velocity.multiplyScalar(this.friction);
+                
+                // Limit speed
+                const speed = this.velocity.length();
+                if (speed > this.maxSpeed * boostMultiplier) {
+                    this.velocity.multiplyScalar(this.maxSpeed * boostMultiplier / speed);
+                }
+                
+                // Update position
+                if (this.velocity.length() > 0.01) {
+                    this.f1Driver.position.add(this.velocity);
+                    
+                    // Update F1 driver rotation to face movement direction
+                    const angle = Math.atan2(this.velocity.x, this.velocity.z);
+                    this.f1Driver.rotation.y = angle;
+                    
+                    // Update distance traveled
+                    const distanceDelta = this.f1Driver.position.distanceTo(this.lastPosition);
+                    this.distanceTraveled += distanceDelta;
+                    this.lastPosition.copy(this.f1Driver.position);
+                    
+                    // Update UI
+                    this.updateUI(speed, boostActive);
+                }
+                
+                // Reset acceleration
+                this.acceleration.set(0, 0, 0);
+                
+                // Update camera position if the F1 driver moved
+                if (moved) {
+                    this.updateCameraPosition();
+                }
+            }
+            
+            updateUI(speed, boostActive) {
+                // Update speed bar
+                const speedPercent = (speed / (this.maxSpeed * this.boostMultiplier)) * 100;
+                document.getElementById('speed-fill').style.width = `${speedPercent}%`;
+                
+                // Update speed value
+                document.getElementById('speed-value').textContent = Math.round(speed * 100);
+                
+                // Update distance
+                document.getElementById('distance-value').textContent = Math.round(this.distanceTraveled);
+                
+                // Update nearest black hole distance
+                let nearestDistance = Infinity;
+                this.blackHoles.forEach(blackHole => {
+                    const distance = this.f1Driver.position.distanceTo(blackHole.position);
+                    nearestDistance = Math.min(nearestDistance, distance);
+                });
+                document.getElementById('nearest-hole').textContent = Math.round(nearestDistance);
+                
+                // Update engine sound based on speed
+                const frequency = 200 + (speed / this.maxSpeed) * 400;
+                this.engineSound.frequency.setValueAtTime(frequency, this.audioContext.currentTime);
+                
+                // Update boost sound
+                if (boostActive) {
+                    this.boostGain.gain.setValueAtTime(0.3, this.audioContext.currentTime);
+                } else {
+                    this.boostGain.gain.setValueAtTime(0, this.audioContext.currentTime);
+                }
+            }
+
+            updateTrail() {
+                // Add current position to trail
+                this.trailPoints.unshift(this.f1Driver.position.clone());
+                
+                // Remove old points
+                if (this.trailPoints.length > this.maxTrailPoints) {
+                    this.trailPoints.pop();
+                }
+                
+                // Update trail geometry
+                const positions = new Float32Array(this.trailPoints.length * 3);
+                const sizes = new Float32Array(this.trailPoints.length);
+                
+                for (let i = 0; i < this.trailPoints.length; i++) {
+                    const point = this.trailPoints[i];
+                    positions[i * 3] = point.x;
+                    positions[i * 3 + 1] = point.y;
+                    positions[i * 3 + 2] = point.z;
+                    
+                    // Update size and opacity based on point age
+                    const age = i / this.trailPoints.length;
+                    sizes[i] = 2.5 * (1 - age * 0.5);  // Size decreases with age
+                    this.trailMaterial.opacity = 0.5 * (1 - age);
+                }
+                
+                this.trailGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                this.trailGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            }
+
+            updateCloudTrail() {
+                // Add current position to cloud trail with increased random offset
+                const offset = new THREE.Vector3(
+                    (Math.random() - 0.5) * 8,  // Increased spread
+                    (Math.random() - 0.5) * 8,
+                    (Math.random() - 0.5) * 8
+                );
+                this.cloudTrailPoints.unshift(this.f1Driver.position.clone().add(offset));
+                
+                // Remove old points
+                if (this.cloudTrailPoints.length > this.maxCloudPoints) {
+                    this.cloudTrailPoints.pop();
+                }
+                
+                // Update cloud trail geometry
+                const positions = new Float32Array(this.cloudTrailPoints.length * 3);
+                const sizes = new Float32Array(this.cloudTrailPoints.length);
+                
+                for (let i = 0; i < this.cloudTrailPoints.length; i++) {
+                    const point = this.cloudTrailPoints[i];
+                    positions[i * 3] = point.x;
+                    positions[i * 3 + 1] = point.y;
+                    positions[i * 3 + 2] = point.z;
+                    
+                    // Update size and opacity based on point age with slower fade
+                    const age = i / this.cloudTrailPoints.length;
+                    sizes[i] = 10 * (1 - age * 0.6);  // Slower size decrease
+                    this.cloudMaterial.opacity = 0.3 * (1 - age * 0.6);  // Slower opacity decrease
+                }
+                
+                this.cloudGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+                this.cloudGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            }
+
+            createSpaceStreets() {
+                const gridSize = 6000;  // Doubled from 3000
+                const blockSize = 300;  // Reduced from 400 for more streets
+                const streetWidth = 60;  // Slightly thinner streets
+                const numBlocks = Math.floor(gridSize / blockSize);
+                
+                // Create street material with subtle glowing effect
+                const streetMaterial = new THREE.ShaderMaterial({
+                    uniforms: {
+                        time: { value: 0 },
+                        color: { value: new THREE.Color(0x00ffff) }
+                    },
+                    vertexShader: `
+                        varying vec2 vUv;
+                        varying vec3 vPosition;
+                        void main() {
+                            vUv = uv;
+                            vPosition = position;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform float time;
+                        uniform vec3 color;
+                        varying vec2 vUv;
+                        varying vec3 vPosition;
+                        
+                        void main() {
+                            // Create subtle pulsing effect
+                            float pulse = sin(time * 0.5) * 0.1 + 0.9;
+                            
+                            // Create flowing effect
+                            float flow = sin(vUv.x * 20.0 + time) * 0.5 + 0.5;
+                            
+                            // Create subtle color variation
+                            vec3 streetColor = mix(color, vec3(1.0), flow * 0.2);
+                            
+                            // Add subtle glow
+                            float glow = exp(-length(vUv - vec2(0.5)) * 2.0) * 0.3;
+                            
+                            // Combine effects with low opacity
+                            float alpha = (0.12 + glow * 0.08) * pulse;  // Slightly more transparent
+                            
+                            gl_FragColor = vec4(streetColor, alpha);
+                        }
+                    `,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    side: THREE.DoubleSide
+                });
+
+                // Create street endpoints for black holes
+                this.streetEndpoints = [];
+                
+                // Create main grid streets
+                for (let i = 0; i <= numBlocks; i++) {
+                    const position = (i - numBlocks / 2) * blockSize;
+                    
+                    // Create horizontal street
+                    const horizontalStreet = new THREE.Mesh(
+                        new THREE.PlaneGeometry(gridSize, streetWidth),
+                        streetMaterial
+                    );
+                    horizontalStreet.position.set(0, 0, position);
+                    horizontalStreet.rotation.x = -Math.PI / 2;
+                    this.scene.add(horizontalStreet);
+                    
+                    // Create vertical street
+                    const verticalStreet = new THREE.Mesh(
+                        new THREE.PlaneGeometry(streetWidth, gridSize),
+                        streetMaterial
+                    );
+                    verticalStreet.position.set(position, 0, 0);
+                    verticalStreet.rotation.x = -Math.PI / 2;
+                    this.scene.add(verticalStreet);
+                    
+                    // Add endpoints for black holes
+                    if (i === 0 || i === numBlocks) {
+                        // Add endpoints for horizontal street
+                        this.streetEndpoints.push(
+                            { x: -gridSize/2, y: 0, z: position },
+                            { x: gridSize/2, y: 0, z: position }
+                        );
+                        
+                        // Add endpoints for vertical street
+                        this.streetEndpoints.push(
+                            { x: position, y: 0, z: -gridSize/2 },
+                            { x: position, y: 0, z: gridSize/2 }
+                        );
+                    }
+                }
+                
+                // Create diagonal streets for visual interest
+                const diagonalLength = gridSize * 1.2;
+                const numDiagonals = 8;  // Increased from 4
+                
+                for (let i = 0; i < numDiagonals; i++) {
+                    const angle = (i / numDiagonals) * Math.PI * 2;
+                    
+                    const diagonalStreet = new THREE.Mesh(
+                        new THREE.PlaneGeometry(diagonalLength, streetWidth * 0.7),  // Thinner diagonals
+                        streetMaterial
+                    );
+                    diagonalStreet.position.set(0, 0, 0);
+                    diagonalStreet.rotation.x = -Math.PI / 2;
+                    diagonalStreet.rotation.z = angle;
+                    this.scene.add(diagonalStreet);
+                    
+                    // Add endpoints for diagonal streets
+                    const radius = diagonalLength / 2;
+                    this.streetEndpoints.push(
+                        { 
+                            x: radius * Math.cos(angle),
+                            y: 0,
+                            z: radius * Math.sin(angle)
+                        },
+                        { 
+                            x: -radius * Math.cos(angle),
+                            y: 0,
+                            z: -radius * Math.sin(angle)
+                        }
+                    );
+                }
+                
+                // Create circular ring roads
+                const numRings = 5;  // Increased from 3
+                for (let i = 1; i <= numRings; i++) {
+                    const radius = (gridSize * 0.25) * i;  // Adjusted spacing
+                    const ringGeometry = new THREE.RingGeometry(radius - streetWidth/2, radius + streetWidth/2, 128);
+                    const ring = new THREE.Mesh(ringGeometry, streetMaterial);
+                    ring.rotation.x = -Math.PI / 2;
+                    this.scene.add(ring);
+                    
+                    // Add endpoints for ring roads
+                    const numEndpoints = 12;  // Increased from 8
+                    for (let j = 0; j < numEndpoints; j++) {
+                        const angle = (j / numEndpoints) * Math.PI * 2;
+                        this.streetEndpoints.push({
+                            x: radius * Math.cos(angle),
+                            y: 0,
+                            z: radius * Math.sin(angle)
+                        });
+                    }
+                }
+                
+                // Add decorative light points along streets
+                const lightGeometry = new THREE.SphereGeometry(1.5, 8, 8);  // Smaller lights
+                const lightMaterial = new THREE.MeshBasicMaterial({
+                    color: 0x00ffff,
+                    transparent: true,
+                    opacity: 0.5  // More subtle
+                });
+                
+                // Add lights along main streets
+                for (let i = 0; i <= numBlocks; i++) {
+                    const position = (i - numBlocks / 2) * blockSize;
+                    const numLights = 30;  // More lights
+                    
+                    for (let j = 0; j < numLights; j++) {
+                        const light = new THREE.Mesh(lightGeometry, lightMaterial);
+                        light.position.set(
+                            (j - numLights/2) * (gridSize/numLights),
+                            0,
+                            position
+                        );
+                        this.scene.add(light);
+                        
+                        const light2 = new THREE.Mesh(lightGeometry, lightMaterial);
+                        light2.position.set(
+                            position,
+                            0,
+                            (j - numLights/2) * (gridSize/numLights)
+                        );
+                        this.scene.add(light2);
+                    }
+                }
+            }
+
+            createButterflies() {
+                const numButterflies = 30;
+                this.butterflies = [];
+                
+                for (let i = 0; i < numButterflies; i++) {
+                    const butterfly = new THREE.Group();
+                    
+                    // Create butterfly body
+                    const bodyGeometry = new THREE.CylinderGeometry(2, 2, 8, 8);
+                    const bodyMaterial = new THREE.MeshPhongMaterial({
+                        color: 0xff69b4,
+                        specular: 0xffffff,
+                        shininess: 100
+                    });
+                    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                    butterfly.add(body);
+                    
+                    // Create wings
+                    const wingGeometry = new THREE.PlaneGeometry(20, 10);
+                    const wingMaterial = new THREE.MeshPhongMaterial({
+                        color: 0xff1493,
+                        specular: 0xffffff,
+                        shininess: 100,
+                        transparent: true,
+                        opacity: 0.8
+                    });
+                    
+                    // Left wings
+                    const leftWing1 = new THREE.Mesh(wingGeometry, wingMaterial);
+                    leftWing1.position.set(-4, 0, 0);
+                    leftWing1.rotation.y = Math.PI / 4;
+                    butterfly.add(leftWing1);
+                    
+                    const leftWing2 = new THREE.Mesh(wingGeometry, wingMaterial);
+                    leftWing2.position.set(-4, 0, 0);
+                    leftWing2.rotation.y = -Math.PI / 4;
+                    butterfly.add(leftWing2);
+                    
+                    // Right wings
+                    const rightWing1 = new THREE.Mesh(wingGeometry, wingMaterial);
+                    rightWing1.position.set(4, 0, 0);
+                    rightWing1.rotation.y = -Math.PI / 4;
+                    butterfly.add(rightWing1);
+                    
+                    const rightWing2 = new THREE.Mesh(wingGeometry, wingMaterial);
+                    rightWing2.position.set(4, 0, 0);
+                    rightWing2.rotation.y = Math.PI / 4;
+                    butterfly.add(rightWing2);
+                    
+                    // Set initial position and animation properties
+                    butterfly.position.set(
+                        (Math.random() - 0.5) * 3000,
+                        (Math.random() - 0.5) * 1000,
+                        (Math.random() - 0.5) * 3000
+                    );
+                    
+                    this.butterflies.push({
+                        mesh: butterfly,
+                        wings: [leftWing1, leftWing2, rightWing1, rightWing2],
+                        speed: 0.5 + Math.random() * 0.5,
+                        direction: new THREE.Vector3(
+                            Math.random() - 0.5,
+                            Math.random() - 0.5,
+                            Math.random() - 0.5
+                        ).normalize(),
+                        rotationSpeed: 0.02 + Math.random() * 0.02,
+                        wingSpeed: 0.1 + Math.random() * 0.1
+                    });
+                    
+                    this.scene.add(butterfly);
+                }
+            }
+
+            updateButterflies() {
+                const time = performance.now() * 0.001;
+                
+                this.butterflies.forEach(butterfly => {
+                    // Update position
+                    butterfly.mesh.position.add(butterfly.direction.multiplyScalar(butterfly.speed));
+                    
+                    // Update rotation
+                    butterfly.mesh.rotation.y += butterfly.rotationSpeed;
+                    
+                    // Animate wings
+                    butterfly.wings.forEach((wing, index) => {
+                        const wingAngle = Math.sin(time * butterfly.wingSpeed + index) * Math.PI / 4;
+                        wing.rotation.x = wingAngle;
+                    });
+                    
+                    // Change direction occasionally
+                    if (Math.random() < 0.01) {
+                        butterfly.direction.set(
+                            Math.random() - 0.5,
+                            Math.random() - 0.5,
+                            Math.random() - 0.5
+                        ).normalize();
+                    }
+                    
+                    // Keep butterflies within bounds
+                    const maxDistance = 3000;
+                    if (butterfly.mesh.position.length() > maxDistance) {
+                        butterfly.mesh.position.normalize().multiplyScalar(maxDistance);
+                    }
+                });
+            }
+
+            createBlackHoles() {
+                const numHoles = 80;
+                const minSize = 40;
+                const maxSize = 100;
+                const spaceRadius = 4000;
+                const minDistanceBetweenHoles = 300;
+                const startDistance = 1000;
+
+                // Create space streets first
+                this.createSpaceStreets();
+                
+                // Create butterflies
+                this.createButterflies();
+
+                // Create black holes at street endpoints
+                this.streetEndpoints.forEach((endpoint, index) => {
+                    const size = minSize + (maxSize - minSize) * (0.7 + Math.random() * 0.3);
+                    this.createBlackHole(endpoint, size);
+                });
+
+                // Add additional black holes in spiral pattern for variety
+                const remainingHoles = numHoles - this.streetEndpoints.length;
+                const positions = [];
+                const numArms = 4;
+                const holesPerArm = Math.ceil(remainingHoles / numArms);
+
+                for (let arm = 0; arm < numArms; arm++) {
+                    for (let i = 0; i < holesPerArm; i++) {
+                        let validPosition = false;
+                        let attempts = 0;
+                        let x, y, z;
+                        
+                        while (!validPosition && attempts < 50) {
+                            const t = i / holesPerArm;
+                            const angle = t * Math.PI * 3 + (arm * Math.PI / 2);
+                            const radius = spaceRadius * (0.2 + t * 0.7);
+                            
+                            x = radius * Math.cos(angle);
+                            z = radius * Math.sin(angle);
+                            y = (Math.random() * 400) - 200;
+                            
+                            const distanceFromStart = Math.sqrt(x * x + y * y + z * z);
+                            if (distanceFromStart >= startDistance) {
+                                validPosition = true;
+                                for (const pos of positions) {
+                                    const dx = x - pos.x;
+                                    const dy = y - pos.y;
+                                    const dz = z - pos.z;
+                                    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+                                    if (distance < minDistanceBetweenHoles) {
+                                        validPosition = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            attempts++;
+                        }
+                        
+                        if (validPosition) {
+                            positions.push({ x, y, z });
+                        }
+                    }
+                }
+
+                positions.forEach(pos => {
+                    const size = minSize + (maxSize - minSize) * (0.5 + Math.random() * 0.5);
+                    this.createBlackHole(pos, size);
+                });
+            }
+
+            createBlackHole(position, size) {
+                // Create black hole geometry
+                const geometry = new THREE.SphereGeometry(size, 64, 64);
+                
+                // Create black hole material with shader
+                const material = new THREE.ShaderMaterial({
+                    uniforms: {
+                        time: { value: 0 },
+                        radius: { value: size }
+                    },
+                    vertexShader: this.blackHoleShader.vertexShader,
+                    fragmentShader: this.blackHoleShader.fragmentShader,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending
+                });
+                
+                // Create black hole mesh
+                const blackHole = new THREE.Mesh(geometry, material);
+                blackHole.position.set(position.x, position.y, position.z);
+                
+                // Add fire ring effect
+                const ringGeometry = new THREE.TorusGeometry(size * 1.5, size * 0.1, 32, 64);
+                const ringMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xff6600,
+                    transparent: true,
+                    opacity: 0.5,
+                    side: THREE.DoubleSide
+                });
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                ring.rotation.x = Math.PI / 2;
+                blackHole.add(ring);
+                
+                // Add gravitational distortion effect
+                const distortionGeometry = new THREE.SphereGeometry(size * 2, 32, 32);
+                const distortionMaterial = new THREE.ShaderMaterial({
+                    uniforms: {
+                        time: { value: 0 },
+                        color: { value: new THREE.Color(0xff0000) }
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vPosition;
+                        void main() {
+                            vNormal = normal;
+                            vPosition = position;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform float time;
+                        uniform vec3 color;
+                        varying vec3 vNormal;
+                        varying vec3 vPosition;
+                        
+                        void main() {
+                            float intensity = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+                            vec3 distortionColor = mix(color, vec3(1.0), 0.3);
+                            gl_FragColor = vec4(distortionColor, intensity * 0.2);
+                        }
+                    `,
+                    transparent: true,
+                    blending: THREE.AdditiveBlending,
+                    side: THREE.BackSide
+                });
+                const distortion = new THREE.Mesh(distortionGeometry, distortionMaterial);
+                blackHole.add(distortion);
+                
+                // Add to scene and store for updates
+                this.scene.add(blackHole);
+                this.blackHoles.push({
+                    mesh: blackHole,
+                    position: blackHole.position,
+                    size: size,
+                    movieLink: this.movieLinks[Math.floor(Math.random() * this.movieLinks.length)]
+                });
+            }
+
+            updatePlanets() {
+                if (!this.planets) return;
+
+                const time = performance.now() * 0.001;
+
+                this.planets.forEach(planet => {
+                    // Update planet rotation
+                    planet.mesh.rotation.x += planet.rotationSpeed.x;
+                    planet.mesh.rotation.y += planet.rotationSpeed.y;
+                    planet.mesh.rotation.z += planet.rotationSpeed.z;
+
+                    // Update atmosphere effect
+                    if (planet.mesh.children.length > 0) {
+                        planet.mesh.children[0].material.uniforms.time.value = time;
+                    }
+                });
+            }
+
+            checkBlackHoleInteraction() {
+                if (!this.f1Driver || !this.blackHoles) return;
+
+                // Find the nearest black hole
+                let nearestBlackHole = null;
+                let nearestDistance = Infinity;
+
+                this.blackHoles.forEach(blackHole => {
+                    const distance = this.f1Driver.position.distanceTo(blackHole.position);
+                    if (distance < nearestDistance) {
+                        nearestDistance = distance;
+                        nearestBlackHole = blackHole;
+                    }
+                });
+
+                // Check if we're within the influence of a black hole
+                if (nearestBlackHole && nearestDistance < nearestBlackHole.size * 1.5) {
+                    // Redirect to the movie link
+                    window.location.href = nearestBlackHole.movieLink;
+                }
+            }
+
+            animate() {
+                if (!this.scene || !this.camera || !this.renderer) return;
+                
+                requestAnimationFrame(() => this.animate());
+                
+                // Update trails
+                if (this.f1Driver) {
+                    this.updateTrail();
+                    this.updateCloudTrail();
+                }
+                
+                // Update dynamic point lights
+                const time = performance.now() * 0.001;
+                this.pointLights.forEach(pointLight => {
+                    const light = pointLight.light;
+                    const originalPos = pointLight.originalPosition;
+                    const speed = pointLight.speed;
+                    const phase = pointLight.phase;
+                    
+                    light.position.x = originalPos.x + Math.cos(time * speed + phase) * 100;
+                    light.position.z = originalPos.z + Math.sin(time * speed + phase) * 100;
+                    light.intensity = 0.3 + Math.sin(time * 2 + phase) * 0.2;
+                });
+                
+                // Update butterflies
+                this.updateButterflies();
+                
+                // Update street glow
+                if (this.streetEndpoints) {
+                    this.scene.children.forEach(child => {
+                        if (child.material && child.material.uniforms && child.material.uniforms.time) {
+                            child.material.uniforms.time.value = time;
+                        }
+                    });
+                }
+                
+                // Check for black hole interactions
+                this.checkBlackHoleInteraction();
+                
+                // Rotate stars around F1 driver
+                if (this.stars && this.f1Driver) {
+                    this.stars.position.copy(this.f1Driver.position);
+                    this.stars.rotation.y += 0.0002;
+                }
+                
+                // Update nebula position to follow F1 driver
+                if (this.nebula && this.f1Driver) {
+                    this.nebula.position.copy(this.f1Driver.position);
+                    if (this.nebula.material.uniforms) {
+                        this.nebula.material.uniforms.time.value += 0.001;
+                        this.nebula.rotation.y += 0.0001;
+                    }
+                }
+                
+                // Handle F1 driver movement
+                this.handleMovement();
+                
+                // Update controls
+                if (this.controls) {
+                    this.controls.update();
+                }
+                
+                // Update planets
+                this.updatePlanets();
+                
+                this.renderer.render(this.scene, this.camera);
+            }
+
+            handleResize() {
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+        }
+
+        // Initialize the scene when the page loads
+        window.addEventListener('load', () => {
+            try {
+                const spaceScene = new SpaceScene();
+            } catch (error) {
+                handleError('Error creating scene: ' + error.message);
+            }
+        });
+    </script>
+</body>
+</html>
